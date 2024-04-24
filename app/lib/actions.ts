@@ -14,7 +14,7 @@ const FormSchema = z.object({
 });
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
-
+const UpdateInvoice = FormSchema.omit({ id: true, date: true });
 /**
  * 异步创建发票
  * @param formData 包含发票信息的FormData对象。需要包含客户ID、金额和状态。
@@ -35,4 +35,22 @@ export async function createInvoice(formData: FormData) {
 
   revalidatePath('/dashboard/invoices');
   redirect('/dashboard/invoices');
+}
+
+export async function updateInvoice(id: string, formData: FormData) {
+  const { amount, status, customerId } = UpdateInvoice.parse({
+    amount: formData.get('amount'),
+    status: formData.get('status'),
+    customerId: formData.get('customerId'),
+  });
+
+  const amountInCents = amount * 100;
+  await sql`UPDATE invoices SET amount = ${amountInCents}, status = ${status}, customer_id = ${customerId} WHERE id = ${id}`;
+  revalidatePath('/dashboard/invoices');
+  redirect('/dashboard/invoices');
+}
+
+export async function deleteInvoice(id: string) {
+  await sql`DELETE FROM invoices WHERE id = ${id}`;
+  revalidatePath('/dashboard/invoices');
 }
