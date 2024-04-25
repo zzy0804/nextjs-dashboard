@@ -7,50 +7,99 @@ import { redirect } from 'next/navigation';
 
 const FormSchema = z.object({
   id: z.string(),
-  customerId: z.string(),
-  amount: z.coerce.number(),
-  status: z.enum(['pending', 'paid']),
+  customerId: z.string({
+    invalid_type_error: 'Please select a customer.',
+  }),
+  amount: z.coerce
+    .number()
+    .gt(0, { message: 'Amount must be greater than 0.' }),
+  status: z.enum(['pending', 'paid'], {
+    invalid_type_error: 'Please select a status.',
+  }),
   date: z.string(),
 });
 
+export type State = {
+  errors?: {
+    customerId?: string[];
+    amount?: string[];
+    status?: string[];
+  };
+  message?: string | null;
+};
+
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 const UpdateInvoice = FormSchema.omit({ id: true, date: true });
+
 /**
  * 异步创建发票
  * @param formData 包含发票信息的FormData对象。需要包含客户ID、金额和状态。
  * @returns 无返回值
  */
-export async function createInvoice(formData: FormData) {
+export async function createInvoice(prevState: State, formData: FormData) {
   // 将formData中的数据提取并结构化
-  const { amount, customerId, status } = CreateInvoice.parse({
+  const validatedFields = CreateInvoice.safeParse({
     customerId: formData.get('customerId'),
     amount: formData.get('amount'),
     status: formData.get('status'),
   });
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: 'Missing Fields. Failed to Create Invoice',
+    };
+  }
+  const { customerId, amount, status } = validatedFields.data;
   const amountInCents = amount * 100;
   const date = new Date().toISOString().split('T')[0];
 
-  await sql`INSERT INTO invoices (customer_id, amount, status, date)
+  try {
+    await sql`INSERT INTO invoices (customer_id, amount, status, date)
     VALUES (${customerId}, ${amountInCents}, ${status}, ${date})`;
+  } catch (error) {
+    return { message: 'Database Error: Failed to Create Invoice' };
+  }
 
   revalidatePath('/dashboard/invoices');
   redirect('/dashboard/invoices');
 }
 
-export async function updateInvoice(id: string, formData: FormData) {
-  const { amount, status, customerId } = UpdateInvoice.parse({
+export async function updateInvoice(
+  id: string,
+  prevState: State,
+  formData: FormData,
+) {
+  const validatedFields = UpdateInvoice.safeParse({
     amount: formData.get('amount'),
     status: formData.get('status'),
     customerId: formData.get('customerId'),
   });
-
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: 'Missing Fields. Failed to Update Invoice',
+    };
+  }
+  const { amount, status, customerId } = validatedFields.data;
   const amountInCents = amount * 100;
-  await sql`UPDATE invoices SET amount = ${amountInCents}, status = ${status}, customer_id = ${customerId} WHERE id = ${id}`;
+  try {
+    await sql`UPDATE invoices SET amount = ${amountInCents}, status = ${status}, customer_id = ${customerId} WHERE id = ${id}`;
+  } catch (error) {
+    return { message: 'Database Error: Failed to Update Invoice' };
+  }
+
   revalidatePath('/dashboard/invoices');
   redirect('/dashboard/invoices');
 }
 
 export async function deleteInvoice(id: string) {
-  await sql`DELETE FROM invoices WHERE id = ${id}`;
-  revalidatePath('/dashboard/invoices');
+  throw new Error('Failed to Delete Invoice');
+  try {
+    await sql`DELETE FROM invoices WHERE id = ${id}`;
+    revalidatePath('/dashboard/invoices');
+    return { message: 'Delete Invoice' };
+  } catch (error) {
+    return { message: 'Database Error: Failed to Delete Invoice' };
+  }
 }
